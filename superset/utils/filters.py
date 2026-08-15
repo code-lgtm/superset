@@ -78,7 +78,7 @@ def guest_embedded_dashboard_filter() -> Optional[ColumnElement[bool]]:
     # Route each id kind to its own column and OR them — a plain int sent to the
     # uuid-typed column would raise a bind/type error.
     uuid_ids = [id_ for id_ in ids if is_uuid(id_)]
-    int_ids = [id_ for id_ in ids if not is_uuid(id_)]
+    int_ids = [id_ for id_ in ids if not is_uuid(id_) and str(id_).isdigit()]
     conditions: list[Any] = []
     if uuid_ids:
         conditions.append(Dashboard.embedded.any(EmbeddedDashboard.uuid.in_(uuid_ids)))
