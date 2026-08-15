@@ -36,7 +36,11 @@ except ImportError:
 from superset import is_feature_enabled
 from superset.commands.database.ssh_tunnel.exceptions import SSHTunnelingNotEnabledError
 from superset.connectors.sqla.models import SqlaTable
-from superset.daos.base import BaseDAO, SKIP_VISIBILITY_FILTER_CLASSES
+from superset.daos.base import (
+    BaseDAO,
+    DEFAULT_NON_FILTERABLE_COLUMNS,
+    SKIP_VISIBILITY_FILTER_CLASSES,
+)
 from superset.databases.filters import DatabaseFilter
 from superset.databases.ssh_tunnel.models import SSHTunnel
 from superset.extensions import db
@@ -52,6 +56,15 @@ logger = logging.getLogger(__name__)
 
 class DatabaseDAO(BaseDAO[Database]):
     base_filter = DatabaseFilter
+
+    # Connection secrets are excluded from schema discovery and from every
+    # serialized response, so they must not be reachable through a filter
+    # either — a LIKE-style filter on them is a prefix oracle.
+    non_filterable_columns = DEFAULT_NON_FILTERABLE_COLUMNS | {
+        "encrypted_extra",
+        "server_cert",
+        "sqlalchemy_uri",
+    }
 
     @classmethod
     def create(

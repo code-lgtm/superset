@@ -186,6 +186,13 @@ TYPE_OPERATOR_MAP = {
 }
 
 
+# Columns holding credentials or credential-derived material on any model.
+# Filtering on them is never legitimate: comparison operators such as ``sw``
+# turn the row count into a prefix oracle for a value that is deliberately
+# absent from every serialized response.
+DEFAULT_NON_FILTERABLE_COLUMNS: frozenset[str] = frozenset({"password"})
+
+
 class ColumnOperator(BaseModel):
     col: str = Field(..., description="Column name to filter on")
     opr: ColumnOperatorEnum = Field(..., description="Operator")
@@ -209,6 +216,13 @@ class BaseDAO(CoreBaseDAO[T], Generic[T]):
     """
     id_column_name: ClassVar[str] = "id"
     uuid_column_name: ClassVar[str] = "uuid"
+
+    non_filterable_columns: ClassVar[frozenset[str]] = DEFAULT_NON_FILTERABLE_COLUMNS
+    """
+    Columns that must never be used as filter columns, because a filter on them
+    discloses a value that is never serialized back to the caller. Child classes
+    should extend ``DEFAULT_NON_FILTERABLE_COLUMNS`` rather than replace it.
+    """
 
     filterable_relationships: ClassVar[frozenset[str]] = frozenset()
     """
@@ -605,6 +619,10 @@ class BaseDAO(CoreBaseDAO[T], Generic[T]):
             if not isinstance(c, ColumnOperator):
                 continue
             col, opr, value = c.col, c.opr, c.value
+            if col in cls.non_filterable_columns:
+                raise ValueError(
+                    "Invalid filter: column '%s' cannot be used as a filter" % (col,)
+                )
             if not col or not hasattr(cls.model_cls, col):
                 model_name = cls.model_cls.__name__ if cls.model_cls else "Unknown"
                 logging.error(
@@ -703,7 +721,9 @@ class BaseDAO(CoreBaseDAO[T], Generic[T]):
         """
 
         mapper = inspect(cls.model_cls)
-        columns = {c.key: c for c in mapper.columns}
+        columns = {
+            c.key: c for c in mapper.columns if c.key not in cls.non_filterable_columns
+        }
         # Collection relationships (m2m / one-to-many) are filterable via
         # `.any()` against the related model's primary key. Only advertise
         # the relationships the DAO has opted into via
@@ -720,6 +740,7 @@ class BaseDAO(CoreBaseDAO[T], Generic[T]):
             name: attr
             for name, attr in vars(cls.model_cls).items()
             if isinstance(attr, hybrid_property)
+            and name not in cls.non_filterable_columns
         }
         # You may add custom fields here, e.g.:
         # custom_fields = {"tags": ["eq", "in_", "like"], ...}
