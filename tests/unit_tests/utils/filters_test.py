@@ -170,3 +170,27 @@ def test_guest_embedded_dashboard_filter_mixed_uuid_and_int_ids(
     assert "embedded_dashboards" in compiled
     assert "dashboards.id IN" in compiled
     assert " OR " in compiled
+
+
+def test_guest_embedded_dashboard_filter_non_numeric_id_denies(
+    mocker: MockerFixture,
+) -> None:
+    """An id that is neither a uuid nor numeric matches no column and yields a
+    deny-all clause rather than being bound to the integer id column."""
+    mocker.patch("superset.is_feature_enabled", return_value=True)
+    mocker.patch.object(
+        security_manager,
+        "get_current_guest_user_if_guest",
+        return_value=_guest_with_dashboards("my-dashboard-slug"),
+    )
+
+    clause = guest_embedded_dashboard_filter()
+    assert clause is not None
+    compiled = str(
+        clause.compile(
+            create_engine("sqlite://", future=True),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    assert "dashboards.id" not in compiled
+    assert compiled.strip() in {"false", "0", "0 = 1"}
