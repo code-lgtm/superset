@@ -630,7 +630,13 @@ class DatasetDAO(BaseDAO[SqlaTable]):
         dataset = DatasetDAO.find_by_id(dataset_id)
         if not dataset:
             return None
-        return db.session.query(SqlMetric).get(metric_id)
+        # Scope the metric to its parent dataset (mirrors ``find_dataset_column``)
+        # so a metric belonging to another dataset is never returned.
+        return (
+            db.session.query(SqlMetric)
+            .filter(SqlMetric.table_id == dataset_id, SqlMetric.id == metric_id)
+            .one_or_none()
+        )
 
     @staticmethod
     def get_table_by_name(database_id: int, table_name: str) -> SqlaTable | None:

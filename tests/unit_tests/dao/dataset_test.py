@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from freezegun import freeze_time
+from pytest_mock import MockerFixture
 from sqlalchemy.orm.session import Session
 
 from superset.daos.base import BaseDAO
@@ -423,3 +424,36 @@ def test_override_columns_rename_flushes_delete_before_insert(
     db.session.flush()
     cols = db.session.query(TableColumn).filter_by(table_id=table.id).all()
     assert [c.column_name for c in cols] == ["new"]
+
+
+def test_find_dataset_metric_is_scoped_to_parent_dataset(
+    session: Session, mocker: MockerFixture
+) -> None:
+    """A metric is only ever returned for the dataset that owns it, so a request
+    pairing one dataset id with another dataset's metric id resolves to nothing."""
+    from superset import db
+    from superset.connectors.sqla.models import SqlaTable, SqlMetric
+    from superset.models.core import Database
+
+    SqlaTable.metadata.create_all(session.get_bind())
+    database = Database(database_name="metric_db", sqlalchemy_uri="sqlite://")
+    dataset_a = SqlaTable(table_name="ds_a", schema="main", database=database)
+    dataset_b = SqlaTable(table_name="ds_b", schema="main", database=database)
+    metric_b = SqlMetric(metric_name="count_b", expression="COUNT(*)")
+    dataset_b.metrics = [metric_b]
+    db.session.add_all([database, dataset_a, dataset_b])
+    db.session.flush()
+
+    # The parent dataset lookup itself is base-filtered; bypass it here so the
+    # assertions isolate the metric-to-dataset scoping.
+    mocker.patch.object(
+        DatasetDAO,
+        "find_by_id",
+        side_effect=lambda id_, **kwargs: {
+            dataset_a.id: dataset_a,
+            dataset_b.id: dataset_b,
+        }.get(id_),
+    )
+
+    assert DatasetDAO.find_dataset_metric(dataset_b.id, metric_b.id) is metric_b
+    assert DatasetDAO.find_dataset_metric(dataset_a.id, metric_b.id) is None
