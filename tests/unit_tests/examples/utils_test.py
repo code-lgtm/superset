@@ -20,6 +20,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
+import pytest
 import yaml
 
 
@@ -204,3 +205,26 @@ def test_load_examples_from_configs_defaults(
         force_data=False,
     )
     mock_command.run.assert_called_once()
+
+
+@patch("superset.examples.utils.ImportExamplesCommand")
+def test_load_configs_from_directory_rejects_python_tags(mock_command_cls):
+    """metadata.yaml must be parsed with a loader that cannot build Python objects.
+
+    An unsafe loader turns `superset import-directory` on a third-party asset
+    bundle into arbitrary code execution as the Superset OS user.
+    """
+    from superset.examples.utils import load_configs_from_directory
+
+    mock_command_cls.return_value = MagicMock()
+
+    with TemporaryDirectory() as tmp_dir:
+        root = Path(tmp_dir)
+        (root / "metadata.yaml").write_text(
+            '!!python/object/apply:os.system ["true"]\n'
+        )
+
+        with pytest.raises(yaml.YAMLError):
+            load_configs_from_directory(root)
+
+    mock_command_cls.assert_not_called()
